@@ -1,0 +1,236 @@
+---
+title: "Exercises"
+author: "Constantino Caetano"
+date: "2024-01-24"
+output: html_document
+---
+
+```{r, echo=F,message=F,warning=F}
+
+## Packages to install
+
+# install.packages("deSolve")
+# install.packages("tidyverse")
+# install.packages("latex2exp")
+
+## Remove the above code after instalation
+
+library(deSolve)
+library(tidyverse)
+library(latex2exp)
+
+```
+
+
+
+
+# Exercise 1 - SIR model
+
+## Function with the ODE system
+
+```{r SIR}
+# SIR equations
+SIR <- function(t, y, parms) {          # time, variable, params
+  
+  with(as.list(c(y, parms)),{
+    # Change in Susceptibles
+    dS <- - beta * S * (I/N)            # S'
+    
+    # Change in Infecteds
+    dI <- beta * S * (I/N) - gamma * I  # I'
+    
+    dR <- gamma * I                     # R'
+    
+    return(list(c(dS, dI,dR)))
+  })
+}
+```
+
+## Parameters and $R_0$
+
+```{r SIR parameters}
+
+
+beta=0.5  # transmission rate
+gamma=1/7 # recovery rate (7 days infectious period)
+
+N=100     # Total population
+I0=1      # Initial number of infected
+S0=N-I0   # Initial number of susceptibles
+R0=0      # Initial number of recovered
+
+init <- c(S=S0,I=I0,R=R0)                     # initial conditions
+parameters <- c(beta=beta,gamma=gamma,N=N)    # parameters
+time <- seq(0,100)                            # time grid (100 days)
+R_0=beta/gamma;R_0
+
+```
+
+## Simulation
+
+```{r SIR simulation}
+out<-ode(y=init,times=time,SIR,parms=parameters)  # ODE solver
+out.df<-as.data.frame(out)                        # transform output into a data.frame
+out.df %>%                                        # plot the results
+  pivot_longer(-time) %>%
+  ggplot()+
+  geom_line(aes(x=time,y=value,color=name))+
+  labs(color="compartment")+
+  theme_bw(base_size = 14) + theme(axis.text.x=element_text(size=14, angle=0, vjust=0.3),
+                                   axis.text.y=element_text(size=14),
+                                   plot.title=element_text(size=14))
+```
+
+# Exercise 3 - SIR model with two strains
+
+## Function with ODE system
+
+```{r SIIR}
+# SIIR equations
+SIIR <- function(t, y, parms) {          # time, variable, params
+  
+  with(as.list(c(y, parms)),{
+    
+    dS <- - (beta_1 * (I_1/N) + beta_2 * (I_2/N)) * S # S'
+    
+    dI_1 <-  beta_1 * (I_1/N) * S - gamma * I_1  # I_1'
+    
+    dI_2 <-  beta_2 * (I_2/N) * S - gamma * I_2  # I_1'
+    
+    dR <- gamma * (I_1+I_2)                     # R'
+    
+    return(list(c(dS,dI_1,dI_2,dR)))
+  })
+}
+```
+
+## Parameters and $R_0$
+
+```{r SIIR parameters}
+beta_1=0.5  # transmission rate of type 1
+beta_2=0.25  # transmission rate of type 2
+gamma=1/7 # recovery rate (7 days infectious period)
+
+N=100     # Total population
+I0_1=1           # Initial number of infected
+I0_2=1           # Initial number of infected
+S0=N-I0_1-I0_2   # Initial number of susceptibles
+R0=0             # Initial number of recovered
+
+R_0=max(beta_1/gamma,beta_2/gamma)
+
+init <- c(S=S0,I_1=I0_1,I_2=I0_2,R=R0)                          # initial conditions
+parameters <- c(beta_1=beta_1,beta_2=beta_2,gamma=gamma,N=N)    # parameters
+time <- seq(0,100)                                              # time grid (100 days)
+
+R_0
+```
+
+## Simulation
+
+```{r SIIR simulation,dpi=300}
+out<-ode(y=init,times=time,SIIR,parms=parameters)  # ODE solver
+out.df<-as.data.frame(out)                        # transform output into a data.frame
+out.df %>%                                        # plot the results
+  pivot_longer(-time) %>%
+  ggplot()+
+  geom_line(aes(x=time,y=value,color=name))+
+  labs(color="compartment")+
+  theme_bw(base_size = 14) + theme(axis.text.x=element_text(size=14, angle=0, vjust=0.3),
+                                   axis.text.y=element_text(size=14),
+                                   plot.title=element_text(size=14))
+```
+
+# Exercise 4
+
+## Data, parameters and matrix model 
+
+```{r setup and parameters}
+# Go to https://lwillem.shinyapps.io/socrates_comix/
+
+C_file=read.csv(file="PORTUGAL_SCM.csv") # Portugal 2020 CoMiX contacts (all waves)
+C=as.matrix(C_file)             # transform to matrix (2 age groups 0-30, 30+)
+a = diag(c(1,1),nrow=2,ncol=2)  # matrix with the susceptibility profile
+h = diag(c(1,1),nrow=2,ncol=2)  # matrix with the infectivity profile
+gamma=1                         # recovery rate
+ 
+K=(1/gamma)*(a %*% t(C )%*% h)                # compute the next generation matrix
+rownames(K)=c("infectee_0-29","infectee_30+");colnames(K)=c("infector_0-29","infector_30+");K
+```
+
+## $R_0$
+
+```{r R_0}
+R_0=max(abs(eigen(K)$values));R_0
+```
+## Eigenvectors
+
+```{r Eigenvectors}
+R = eigen(K)
+  colnames(R$vectors)=c("dominant",as.character(seq(2,ncol(R$vectors))))
+  if(all(R$vectors[,1]<0)){
+    R$vectors[,1]=R$vectors[,1]*-1 # make sure the dominant right vector is positive
+  }
+  
+  norm=T
+  if(norm==T){
+    R$vectors[,1]=R$vectors[,1]/sum(R$vectors[,1]) # normalize such that ||w|| = 1
+  }
+  
+# calculate the left eigenvectors constrained on <v_i,w_i> = 1 and <v_i,w_j> = 0, for j!=i
+L=eigen(t(K))
+  colnames(L$vectors)=c("dominant",as.character(seq(2,ncol(L$vectors))))
+  
+  for (i in seq(1,ncol(L$vectors))) {
+    L$vectors[,i]=L$vectors[,i]/as.numeric((t(L$vectors[,i])%*%R$vectors[,i]))
+  }
+  eigens=list(values=R$values,w=R$vectors,v=L$vectors)
+
+```
+
+## Sensitivity matrix
+
+```{r sensitivity matrix}
+
+sens=eigens$v[,"dominant"] %*% t(eigens$w[,"dominant"]) # vw^T
+  colnames(sens) <- colnames(K)
+  rownames(sens) <- rownames(K)
+  
+sens
+```
+
+## Sensitivity matrix plot
+
+```{r plot sensitivity matrix, echo=F,dpi=300, out.width='60%'}
+sens_long<-reshape2::melt(sens)                     # Plot sensitivities
+  ggplot(sens_long, aes(x = Var2, y = Var1)) +
+      geom_raster(aes(fill=value)) +
+      geom_text(aes(label=round(value,3)),size=9)+
+      scale_fill_gradient(low="grey90", high="red") +
+      labs(title=TeX("$R_0$ sensitivity matrix"),x="",y="",fill=TeX(r"($\frac{dR_0}{dk_{ij}}$)")) +
+      scale_x_discrete(expand=c(0,0),labels=c("0-29","30+")) +
+      scale_y_discrete(expand=c(0,0),labels=c("0-29","30+")) +
+      theme_bw(base_size = 20) + theme(axis.text.x=element_text(size=20, angle=0, vjust=0.3),
+                                     axis.text.y=element_text(size=20),
+                                     plot.title=element_text(size=20))
+```
+
+
+## Elasticity matrix
+
+```{r plot elasticity matrix, echo=F,dpi=300, out.width='60%'}
+E = (1/R_0)*sens*K
+
+E_long<-reshape2::melt(E)                     # Plot sensitivities
+  ggplot(E_long, aes(x = Var2, y = Var1)) +
+      geom_raster(aes(fill=value)) +
+      geom_text(aes(label=round(value,3)),size=9)+
+      scale_fill_gradient(low="grey90", high="red") +
+      labs(title=TeX("$R_0$ elasticity matrix"),x="",y="",fill=TeX(r"($\frac{dR_0}{dk_{ij}}$)")) +
+      scale_x_discrete(expand=c(0,0),labels=c("0-29","30+")) +
+      scale_y_discrete(expand=c(0,0),labels=c("0-29","30+")) +
+      theme_bw(base_size = 20) + theme(axis.text.x=element_text(size=20, angle=0, vjust=0.3),
+                                     axis.text.y=element_text(size=20),
+                                     plot.title=element_text(size=20))
+  
+```
